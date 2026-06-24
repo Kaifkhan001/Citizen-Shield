@@ -1,5 +1,14 @@
 // Citizen Shield database schema
-// Models will be added in future milestones.
+// Milestone 2: Core domain & database architecture.
+//
+// Design notes:
+// - UUID ids everywhere (via Postgres uuid_generate_v4 via Prisma @default(uuid())).
+// - All entities carry createdAt; mutable entities also carry updatedAt.
+// - Append-only entities (CaseTimeline) omit updatedAt and have no soft-delete column.
+// - Soft deletes (deletedAt) live on Case / Evidence / Complaint per spec.
+// - All status / category / role / type fields are enums, never free text.
+// - Indexes are placed on every foreign key and on every status / category field
+//   that we expect to filter or group by.
 
 generator client {
   provider = "prisma-client-js"
@@ -8,4 +17,149 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum CaseCategory {
+  CONSUMER_COMPLAINT
+  EMPLOYMENT_DISPUTE
+}
+
+enum CaseStatus {
+  DRAFT
+  EVIDENCE_PENDING
+  READY_TO_FILE
+  FILED
+  AWAITING_RESPONSE
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum ComplaintType {
+  COMPLAINT
+  LEGAL_NOTICE
+  REMINDER
+  ESCALATION
+}
+
+enum ComplaintStatus {
+  DRAFT
+  GENERATED
+  SENT
+}
+
+enum TimelineEventType {
+  CASE_CREATED
+  EVIDENCE_UPLOADED
+  COMPLAINT_GENERATED
+  STATUS_CHANGED
+}
+
+// =============================================================================
+// MODELS
+// =============================================================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cases Case[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Case {
+  id          String       @id @default(uuid())
+  title       String
+  description String
+  category    CaseCategory
+  status      CaseStatus   @default(DRAFT)
+  userId      String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  evidence        Evidence[]
+  timelineEvents  CaseTimeline[]
+  complaints      Complaint[]
+  aiConversations AIConversation[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model Evidence {
+  id        String    @id @default(uuid())
+  caseId    String
+  fileName  String
+  fileType  String
+  fileUrl   String
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([deletedAt])
+}
+
+model CaseTimeline {
+  id          String            @id @default(uuid())
+  caseId      String
+  eventType   TimelineEventType
+  description String
+  createdAt   DateTime          @default(now())
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model Complaint {
+  id        String          @id @default(uuid())
+  caseId    String
+  type      ComplaintType
+  content   String
+  status    ComplaintStatus @default(DRAFT)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  deletedAt DateTime?
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model AIConversation {
+  id               String   @id @default(uuid())
+  caseId           String
+  userMessage      String
+  assistantMessage String
+  createdAt        DateTime @default(now())
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([createdAt])
 }

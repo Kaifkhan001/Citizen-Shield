@@ -15,6 +15,7 @@
     "type-check": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts",
     "prisma:studio": "prisma studio",
     "prisma:format": "prisma format",
     "clean": "rm -rf .turbo dist"
@@ -23,7 +24,13 @@
     "@prisma/client": "^6.1.0"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "prisma": "^6.1.0",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma",
+    "seed": "tsx prisma/seed.ts"
   }
 }

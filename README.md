@@ -91,4 +91,17 @@ This milestone ships the foundation only:
 - ✅ Tooling: ESLint, Prettier, Husky, lint-staged
 - ❌ No business logic, no auth, no models, no AI
 
+## Milestone 2 — Core Domain
+
+The data model that will power the rest of the platform. See `docs/database-schema.md`.
+
+- ✅ Six Prisma models: `User`, `Case`, `Evidence`, `CaseTimeline`, `Complaint`, `AIConversation`
+- ✅ Six enums covering roles, categories, statuses, types, and timeline events
+- ✅ Soft-delete (`deletedAt`) on `Case` / `Evidence` / `Complaint`
+- ✅ Append-only `CaseTimeline` and `AIConversation`
+- ✅ NestJS domain modules wired (`Cases`, `Evidence`, `Timeline`, `Complaints`) — empty, no business logic
+- ✅ Next.js placeholder routes: `/dashboard`, `/cases`, `/cases/[id]`
+- ✅ Initial migration: `20260624000000_init_core_domain`
+- ❌ No auth, no APIs, no AI, no file uploads
+
 See `docs/` for architectural notes.

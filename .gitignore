@@ -46,9 +46,13 @@ Thumbs.db
 # Turbo
 .turbo/
 
+# TS build info
+*.tsbuildinfo
+
 # Prisma
 packages/database/prisma/migrations/dev.db*
 packages/database/prisma/dev.db*
 
 # Husky
 .husky/_
+.husky/.gitignore

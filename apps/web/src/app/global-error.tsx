@@ -1,6 +1,8 @@
 'use client';
 
+// `error` is required by Next.js but the placeholder body has no use for it yet.
 export default function GlobalError({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   error,
   reset,
 }: {

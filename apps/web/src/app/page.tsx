@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { healthResponseSchema, type HealthResponse } from '@citizen-shield/validation';
 
 type Status = 'loading' | 'online' | 'offline';
@@ -46,7 +47,7 @@ export default function Home(): React.ReactElement {
     <main className="flex min-h-screen flex-col items-center justify-center gap-8 px-4 text-center">
       <header>
         <h1 className="text-5xl font-bold tracking-tight">Citizen Shield</h1>
-        <p className="mt-2 text-sm text-gray-500">Project foundation — Milestone 1</p>
+        <p className="mt-2 text-sm text-gray-500">Citizen Shield — Milestone 2</p>
       </header>
 
       <section
@@ -68,6 +69,15 @@ export default function Home(): React.ReactElement {
           </p>
         )}
       </section>
+
+      <nav className="flex gap-4 text-sm">
+        <Link className="underline" href="/dashboard">
+          Dashboard
+        </Link>
+        <Link className="underline" href="/cases">
+          Cases
+        </Link>
+      </nav>
     </main>
   );
 }

@@ -21,22 +21,20 @@ Citizen Shield is a case-management system. The schema is normalized around a ce
 ## Entities
 
 ### `User`
-
 The system's identity aggregate. One user may own many cases.
 
-| Field       | Type       | Notes                             |
-| ----------- | ---------- | --------------------------------- |
-| `id`        | `uuid`     | Primary key (`@default(uuid())`). |
-| `email`     | `string`   | Unique. Indexed.                  |
-| `name`      | `string`   | Display name.                     |
-| `role`      | `UserRole` | `USER` (default) or `ADMIN`.      |
-| `createdAt` | `DateTime` | Set on insert.                    |
-| `updatedAt` | `DateTime` | Auto-updated.                     |
+| Field       | Type       | Notes                              |
+| ----------- | ---------- | ---------------------------------- |
+| `id`        | `uuid`     | Primary key (`@default(uuid())`).  |
+| `email`     | `string`   | Unique. Indexed.                   |
+| `name`      | `string`   | Display name.                      |
+| `role`      | `UserRole` | `USER` (default) or `ADMIN`.       |
+| `createdAt` | `DateTime` | Set on insert.                     |
+| `updatedAt` | `DateTime` | Auto-updated.                      |
 
 Indexes: `email` (unique + secondary), `role`.
 
 ### `Case`
-
 The central aggregate. Everything in the system attaches to a case.
 
 | Field         | Type           | Notes                                                  |
@@ -54,63 +52,59 @@ The central aggregate. Everything in the system attaches to a case.
 Indexes: `userId`, `category`, `status`, `deletedAt`.
 
 ### `Evidence`
-
 References to files uploaded for a case. File binaries never live in Postgres — only metadata and a URL.
 
-| Field       | Type        | Notes                                |
-| ----------- | ----------- | ------------------------------------ |
-| `id`        | `uuid`      | Primary key.                         |
-| `caseId`    | `uuid` (FK) | Cascade on case delete.              |
-| `fileName`  | `string`    | Original filename.                   |
-| `fileType`  | `string`    | MIME or extension.                   |
-| `fileUrl`   | `string`    | Pointer to object storage (S3 etc.). |
-| `createdAt` | `DateTime`  | Set on insert.                       |
-| `deletedAt` | `DateTime?` | Soft-delete tombstone.               |
+| Field       | Type       | Notes                                  |
+| ----------- | ---------- | -------------------------------------- |
+| `id`        | `uuid`     | Primary key.                           |
+| `caseId`    | `uuid` (FK)| Cascade on case delete.                |
+| `fileName`  | `string`   | Original filename.                     |
+| `fileType`  | `string`   | MIME or extension.                     |
+| `fileUrl`   | `string`   | Pointer to object storage (S3 etc.).   |
+| `createdAt` | `DateTime` | Set on insert.                         |
+| `deletedAt` | `DateTime?`| Soft-delete tombstone.                 |
 
 Indexes: `caseId`, `deletedAt`.
 
 ### `CaseTimeline`
-
 Append-only history of significant case events. No `updatedAt`, no `deletedAt` — events are immutable once written.
 
-| Field         | Type                | Notes                                                |
-| ------------- | ------------------- | ---------------------------------------------------- |
-| `id`          | `uuid`              | Primary key.                                         |
-| `caseId`      | `uuid` (FK)         | Cascade on case delete.                              |
-| `eventType`   | `TimelineEventType` | Enum of the four canonical event types.              |
-| `description` | `string`            | Human-readable summary.                              |
+| Field         | Type                | Notes                                              |
+| ------------- | ------------------- | -------------------------------------------------- |
+| `id`          | `uuid`              | Primary key.                                       |
+| `caseId`      | `uuid` (FK)         | Cascade on case delete.                            |
+| `eventType`   | `TimelineEventType` | Enum of the four canonical event types.            |
+| `description` | `string`            | Human-readable summary.                            |
 | `createdAt`   | `DateTime`          | Set on insert (also indexed for chronological sort). |
 
 Indexes: `caseId`, `eventType`, `createdAt`.
 
 ### `Complaint`
-
 Generated documents associated with a case (the actual letters/notices a user sends out).
 
-| Field       | Type              | Notes                                       |
-| ----------- | ----------------- | ------------------------------------------- |
-| `id`        | `uuid`            | Primary key.                                |
-| `caseId`    | `uuid` (FK)       | Cascade on case delete.                     |
-| `type`      | `ComplaintType`   | Kind of document.                           |
-| `content`   | `string` (text)   | Full document body.                         |
-| `status`    | `ComplaintStatus` | Lifecycle (`DRAFT` → `GENERATED` → `SENT`). |
-| `createdAt` | `DateTime`        | Set on insert.                              |
-| `updatedAt` | `DateTime`        | Auto-updated.                               |
-| `deletedAt` | `DateTime?`       | Soft-delete tombstone.                      |
+| Field       | Type             | Notes                                    |
+| ----------- | ---------------- | ---------------------------------------- |
+| `id`        | `uuid`           | Primary key.                             |
+| `caseId`    | `uuid` (FK)      | Cascade on case delete.                  |
+| `type`      | `ComplaintType`  | Kind of document.                        |
+| `content`   | `string` (text)  | Full document body.                      |
+| `status`    | `ComplaintStatus`| Lifecycle (`DRAFT` → `GENERATED` → `SENT`). |
+| `createdAt` | `DateTime`       | Set on insert.                           |
+| `updatedAt` | `DateTime`       | Auto-updated.                            |
+| `deletedAt` | `DateTime?`      | Soft-delete tombstone.                   |
 
 Indexes: `caseId`, `status`, `deletedAt`.
 
 ### `AIConversation`
-
 Persisted AI exchanges tied to a case. Stores the user message and assistant reply as plain text.
 
-| Field              | Type        | Notes                   |
-| ------------------ | ----------- | ----------------------- |
-| `id`               | `uuid`      | Primary key.            |
-| `caseId`           | `uuid` (FK) | Cascade on case delete. |
-| `userMessage`      | `string`    | Prompt.                 |
-| `assistantMessage` | `string`    | Reply.                  |
-| `createdAt`        | `DateTime`  | Set on insert.          |
+| Field               | Type         | Notes                            |
+| ------------------- | ------------ | -------------------------------- |
+| `id`                | `uuid`       | Primary key.                     |
+| `caseId`            | `uuid` (FK)  | Cascade on case delete.          |
+| `userMessage`       | `string`     | Prompt.                          |
+| `assistantMessage`  | `string`     | Reply.                           |
+| `createdAt`         | `DateTime`   | Set on insert.                   |
 
 Indexes: `caseId`, `createdAt`.
 
@@ -129,13 +123,13 @@ enum TimelineEventType{ CASE_CREATED, EVIDENCE_UPLOADED,
 
 ## Relationships
 
-| Relation               | From → To                           | On Delete  |
-| ---------------------- | ----------------------------------- | ---------- |
-| `Case.user`            | `Case.userId` → `User.id`           | `Restrict` |
-| `Case.evidence`        | `Evidence.caseId` → `Case.id`       | `Cascade`  |
-| `Case.timelineEvents`  | `CaseTimeline.caseId` → `Case.id`   | `Cascade`  |
-| `Case.complaints`      | `Complaint.caseId` → `Case.id`      | `Cascade`  |
-| `Case.aiConversations` | `AIConversation.caseId` → `Case.id` | `Cascade`  |
+| Relation              | From → To                  | On Delete |
+| --------------------- | -------------------------- | --------- |
+| `Case.user`           | `Case.userId` → `User.id`  | `Restrict`|
+| `Case.evidence`       | `Evidence.caseId` → `Case.id` | `Cascade` |
+| `Case.timelineEvents` | `CaseTimeline.caseId` → `Case.id` | `Cascade` |
+| `Case.complaints`     | `Complaint.caseId` → `Case.id` | `Cascade` |
+| `Case.aiConversations`| `AIConversation.caseId` → `Case.id` | `Cascade` |
 
 `Restrict` on `Case.userId` is deliberate: deleting a user should not silently destroy all their case history. Soft-deleting the case first (and resolving it as `CLOSED`) is the expected path.
 
@@ -143,19 +137,19 @@ enum TimelineEventType{ CASE_CREATED, EVIDENCE_UPLOADED,
 
 Every foreign key is indexed. The following non-FK indexes exist for filtering or grouping:
 
-| Table            | Index       | Purpose                                          |
-| ---------------- | ----------- | ------------------------------------------------ |
-| `User`           | `email`     | Unique + secondary for case-by-email lookups.    |
-| `User`           | `role`      | Admin queries.                                   |
-| `Case`           | `category`  | Filter dashboards.                               |
-| `Case`           | `status`    | Workflow views.                                  |
-| `Case`           | `deletedAt` | Excludes soft-deleted rows from default queries. |
-| `Evidence`       | `deletedAt` | Same as above.                                   |
-| `CaseTimeline`   | `eventType` | Filter by event kind.                            |
-| `CaseTimeline`   | `createdAt` | Sort chronologically.                            |
-| `Complaint`      | `status`    | Filter by document lifecycle.                    |
-| `Complaint`      | `deletedAt` | Same as above.                                   |
-| `AIConversation` | `createdAt` | Same as above.                                   |
+| Table           | Index              | Purpose                                              |
+| --------------- | ------------------ | ---------------------------------------------------- |
+| `User`          | `email`            | Unique + secondary for case-by-email lookups.        |
+| `User`          | `role`             | Admin queries.                                       |
+| `Case`          | `category`         | Filter dashboards.                                   |
+| `Case`          | `status`           | Workflow views.                                      |
+| `Case`          | `deletedAt`        | Excludes soft-deleted rows from default queries.    |
+| `Evidence`      | `deletedAt`        | Same as above.                                       |
+| `CaseTimeline`  | `eventType`        | Filter by event kind.                                |
+| `CaseTimeline`  | `createdAt`        | Sort chronologically.                                |
+| `Complaint`     | `status`           | Filter by document lifecycle.                        |
+| `Complaint`     | `deletedAt`        | Same as above.                                       |
+| `AIConversation`| `createdAt`        | Same as above.                                       |
 
 ## Soft-delete strategy
 

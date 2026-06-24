@@ -28,4 +28,7 @@ export async function disconnectDatabase(): Promise<void> {
   await prisma.$disconnect();
 }
 
+// Re-export everything Prisma generates — models, enums, input types, the
+// raw client, and `$Enums` (the enum-as-object view used by zod-prisma and
+// similar tooling). Single source of truth for the database layer.
 export * from '@prisma/client';
