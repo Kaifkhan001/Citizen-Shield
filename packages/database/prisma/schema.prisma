@@ -1,0 +1,11 @@
+// Citizen Shield database schema
+// Models will be added in future milestones.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

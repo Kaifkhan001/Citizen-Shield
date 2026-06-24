@@ -1,0 +1,36 @@
+{
+  "name": "@citizen-shield/backend",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "nest start --watch",
+    "build": "nest build",
+    "start": "nest start",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf .turbo dist"
+  },
+  "dependencies": {
+    "@citizen-shield/api": "workspace:*",
+    "@citizen-shield/auth": "workspace:*",
+    "@citizen-shield/config": "workspace:*",
+    "@citizen-shield/database": "workspace:*",
+    "@citizen-shield/types": "workspace:*",
+    "@citizen-shield/utils": "workspace:*",
+    "@citizen-shield/validation": "workspace:*",
+    "@nestjs/common": "^10.4.15",
+    "@nestjs/core": "^10.4.15",
+    "@nestjs/platform-express": "^10.4.15",
+    "ioredis": "^5.4.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.9",
+    "@nestjs/schematics": "^10.2.3",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
