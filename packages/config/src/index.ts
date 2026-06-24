@@ -5,7 +5,6 @@ import { dirname, join, resolve } from 'node:path';
 
 // `__dirname` is provided by the runtime (CJS) or Node's TS stripper. We declare
 // it locally to keep this file compile-clean across module systems.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const __dirname: string;
 
 // Walk up the directory tree from `start` looking for a `.env` file. Stops at
