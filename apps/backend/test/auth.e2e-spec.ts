@@ -67,7 +67,7 @@ describe('Auth (e2e)', () => {
     await request(app.getHttpServer()).post('/api/auth/register').send(ALICE).expect(201);
     const res = await request(app.getHttpServer()).post('/api/auth/register').send(ALICE);
     expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('CONFLICT');
+    expect(res.body.error.code).toBe('AUTH_EMAIL_TAKEN');
   });
 
   it('logs in with valid credentials', async () => {
@@ -89,7 +89,7 @@ describe('Auth (e2e)', () => {
       .post('/api/auth/login')
       .send({ email: ALICE.email, password: 'WRONG-PASSWORD' });
     expect(res.status).toBe(401);
-    expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+    expect(res.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
   });
 
   it('returns the current user on /auth/me with a valid access token', async () => {
@@ -105,7 +105,7 @@ describe('Auth (e2e)', () => {
   it('rejects /auth/me with a missing token', async () => {
     const res = await request(app.getHttpServer()).get('/api/auth/me');
     expect(res.status).toBe(401);
-    expect(res.body.error.code).toBe('UNAUTHORIZED');
+    expect(res.body.error.code).toBe('AUTH_UNAUTHORIZED');
   });
 
   it('rejects /auth/me with a tampered token', async () => {
@@ -127,8 +127,8 @@ describe('Auth (e2e)', () => {
 
     // Second refresh with the OLD cookie — should fail (rotated).
     const r2 = await request(app.getHttpServer()).post('/api/auth/refresh').set('Cookie', cookie);
-    expect(r2.status).toBe(201);
-    expect(r2.body.data).toBeNull();
+    expect(r2.status).toBe(401);
+    expect(r2.body.error.code).toBe('AUTH_REFRESH_EXPIRED');
 
     // Third refresh with the NEW cookie — should succeed.
     const r3 = await request(app.getHttpServer())
@@ -148,9 +148,10 @@ describe('Auth (e2e)', () => {
     expect(clearCookie).toMatch(/cs_refresh=/);
     expect(clearCookie).toMatch(/Max-Age=0/);
 
-    // After logout, refresh should be a no-op (data: null).
+    // After logout, refresh should return 401 AUTH_REFRESH_EXPIRED — the
+    // revoked token is no longer in Redis.
     const r = await request(app.getHttpServer()).post('/api/auth/refresh').set('Cookie', cookie);
-    expect(r.status).toBe(201);
-    expect(r.body.data).toBeNull();
+    expect(r.status).toBe(401);
+    expect(r.body.error.code).toBe('AUTH_REFRESH_EXPIRED');
   });
 });

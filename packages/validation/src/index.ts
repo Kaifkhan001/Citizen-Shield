@@ -2,6 +2,14 @@ import { z } from 'zod';
 import { CaseCategory, CaseStatus, UserRole } from '@citizen-shield/types';
 
 // -----------------------------------------------------------------------------
+// Shared primitives.
+// -----------------------------------------------------------------------------
+
+// UUID v4 validator for route params (e.g. `/cases/:id`). Surfaces a clear
+// 400 VALIDATION_ERROR instead of a 500 from Prisma's `Invalid UUID` error.
+export const uuidSchema = z.string().uuid('Invalid id');
+
+// -----------------------------------------------------------------------------
 // Health (kept from M1).
 // -----------------------------------------------------------------------------
 

@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
+import { ApiTags } from '@nestjs/swagger';
+import { ErrorCode } from '@citizen-shield/errors';
 import {
   registerSchema,
   loginSchema,
@@ -14,14 +25,14 @@ import { REFRESH_COOKIE_NAME } from '@citizen-shield/auth';
 import { env } from '@citizen-shield/config';
 import { AuthService } from './auth.service';
 
-// 5 requests per minute per IP on auth endpoints — strict enough to deter
-// credential stuffing without being annoying during development. Tests raise
-// the limit so a single suite can issue hundreds of auth requests without
-// tripping the limiter.
-const AUTH_THROTTLE_LIMIT = env.NODE_ENV === 'test' ? 100_000 : 5;
-const AUTH_THROTTLE_TTL = env.NODE_ENV === 'test' ? 1_000 : 60_000;
+// Per-route rate limit for `/auth/*` — stricter than the global default
+// (env: `AUTH_RATE_LIMIT_*`) to deter credential stuffing. Tests raise the
+// limit so a single suite can issue hundreds of auth requests.
+const AUTH_THROTTLE_LIMIT = env.NODE_ENV === 'test' ? 100_000 : env.AUTH_RATE_LIMIT_LIMIT;
+const AUTH_THROTTLE_TTL = env.NODE_ENV === 'test' ? 1_000 : env.AUTH_RATE_LIMIT_TTL;
 const AUTH_THROTTLE = { default: { limit: AUTH_THROTTLE_LIMIT, ttl: AUTH_THROTTLE_TTL } };
 
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
@@ -54,17 +65,28 @@ export class AuthController {
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthResponse | null> {
+  ): Promise<AuthResponse> {
     const cookies = parseCookies(req.headers.cookie);
     const refreshToken = cookies[REFRESH_COOKIE_NAME];
     if (!refreshToken) {
-      return null;
+      throw new UnauthorizedException({
+        code: ErrorCode.AUTH_REFRESH_EXPIRED,
+        message: 'Refresh token missing',
+      });
     }
     const result = await this.auth.refresh(refreshToken);
     if (!result) {
-      // Clear the stale cookie and return null so the client knows to log out.
-      res.setHeader('Set-Cookie', `cs_refresh=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
-      return null;
+      // Clear the stale cookie and throw — the filter wraps it in the
+      // canonical `{ success: false, error: { code: AUTH_REFRESH_EXPIRED } }`
+      // envelope.
+      res.setHeader(
+        'Set-Cookie',
+        `${REFRESH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+      );
+      throw new UnauthorizedException({
+        code: ErrorCode.AUTH_REFRESH_EXPIRED,
+        message: 'Refresh token expired or rotated',
+      });
     }
     res.setHeader('Set-Cookie', result.refreshCookie);
     return result.response;

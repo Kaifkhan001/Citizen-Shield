@@ -1,4 +1,4 @@
-import { Module, Global, Logger } from '@nestjs/common';
+import { Module, Global, Logger, Inject, OnApplicationShutdown } from '@nestjs/common';
 import Redis from 'ioredis';
 import { env } from '@citizen-shield/config';
 
@@ -33,4 +33,11 @@ const redisProvider = {
   providers: [redisProvider],
   exports: [REDIS_CLIENT],
 })
-export class RedisModule {}
+export class RedisModule implements OnApplicationShutdown {
+  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
+
+  // Disconnect cleanly so the ioredis socket doesn't leak across hot-reloads.
+  async onApplicationShutdown(): Promise<void> {
+    await this.redis.quit();
+  }
+}

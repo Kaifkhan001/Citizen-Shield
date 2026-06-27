@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { Logger as PinoLogger } from 'nestjs-pino';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { env } from '@citizen-shield/config';
@@ -30,6 +31,19 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix('api');
 
+  // OpenAPI / Swagger UI — dev-only. The route is registered before any
+  // global prefix so the URL is `/api/docs`, not `/api/api/docs`.
+  if (env.NODE_ENV !== 'production') {
+    const docConfig = new DocumentBuilder()
+      .setTitle('Citizen Shield API')
+      .setDescription('Authentication and case CRUD endpoints (M3.5).')
+      .setVersion('0.0.0')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
+      .build();
+    const document = SwaggerModule.createDocument(app, docConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  }
+
   // Global exception filter — wraps every error in the `{ success, error }` envelope.
   app.useGlobalFilters(new HttpExceptionFilter());
 
@@ -46,6 +60,9 @@ async function bootstrap(): Promise<void> {
   const logger = app.get(PinoLogger);
   logger.log(`🚀 Citizen Shield API running at http://localhost:${env.BACKEND_PORT}/api`);
   logger.log(`🏥 Health check available at http://localhost:${env.BACKEND_PORT}/api/health`);
+  if (env.NODE_ENV !== 'production') {
+    logger.log(`📚 Swagger UI available at http://localhost:${env.BACKEND_PORT}/api/docs`);
+  }
 }
 
 void bootstrap();

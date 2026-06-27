@@ -5,9 +5,17 @@
 // global in the sense that you can register it once on AppModule and decorate
 // individual routes with `@Public()` to opt out — but for clarity we attach
 // it per-controller.
+//
+// Token failures are differentiated:
+//   - `AUTH_TOKEN_INVALID` (bad signature / malformed / wrong algorithm)
+//   - `AUTH_TOKEN_EXPIRED` (signature ok but past expiry)
+//   - `AUTH_UNAUTHORIZED` (missing or empty Authorization header)
+// The frontend uses these codes to decide whether to silent-refresh
+// (`AUTH_TOKEN_EXPIRED`) or to send the user back to /login (anything else).
 
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
-import { verifyAccessToken, type JwtPayload } from '@citizen-shield/auth';
+import { verifyAccessToken } from '@citizen-shield/auth';
+import { ErrorCode } from '@citizen-shield/errors';
 import type { Request } from 'express';
 import type { AuthenticatedUser } from '../decorators/current-user.decorator';
 
@@ -18,30 +26,30 @@ export class JwtAuthGuard implements CanActivate {
     const header = req.headers.authorization;
     if (!header || !header.startsWith('Bearer ')) {
       throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
+        code: ErrorCode.AUTH_UNAUTHORIZED,
         message: 'Missing or malformed Authorization header',
       });
     }
     const token = header.slice('Bearer '.length).trim();
     if (!token) {
       throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
+        code: ErrorCode.AUTH_UNAUTHORIZED,
         message: 'Empty access token',
       });
     }
-    let payload: JwtPayload;
-    try {
-      payload = await verifyAccessToken(token);
-    } catch {
+    const result = await verifyAccessToken(token);
+    if (!result.ok) {
       throw new UnauthorizedException({
-        code: 'UNAUTHORIZED',
-        message: 'Invalid or expired access token',
+        code:
+          result.reason === 'expired' ? ErrorCode.AUTH_EXPIRED_TOKEN : ErrorCode.AUTH_INVALID_TOKEN,
+        message:
+          result.reason === 'expired' ? 'Access token has expired' : 'Access token is invalid',
       });
     }
     req.user = {
-      id: payload.sub,
-      email: payload.email,
-      role: payload.role,
+      id: result.payload.sub,
+      email: result.payload.email,
+      role: result.payload.role,
     };
     return true;
   }

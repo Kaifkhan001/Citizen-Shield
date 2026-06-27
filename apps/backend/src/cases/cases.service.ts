@@ -8,6 +8,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma, PrismaClient } from '@citizen-shield/database';
 import { CaseStatus, UserRole, type CaseCategory } from '@citizen-shield/types';
 import type { CaseResponse } from '@citizen-shield/validation';
+import { ErrorCode } from '@citizen-shield/errors';
 import { PRISMA_CLIENT } from '../database/database.module';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 
@@ -43,7 +44,7 @@ export class CasesService {
   async findOne(user: AuthenticatedUser, id: string): Promise<CaseResponse> {
     const row = await this.prisma.case.findUnique({ where: { id } });
     if (!row || !this.userCanAccess(user, row.userId)) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Case not found' });
+      throw new NotFoundException({ code: ErrorCode.CASE_NOT_FOUND, message: 'Case not found' });
     }
     return toResponse(row);
   }
@@ -55,7 +56,7 @@ export class CasesService {
   ): Promise<CaseResponse> {
     const existing = await this.prisma.case.findUnique({ where: { id } });
     if (!existing || !this.userCanAccess(user, existing.userId)) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Case not found' });
+      throw new NotFoundException({ code: ErrorCode.CASE_NOT_FOUND, message: 'Case not found' });
     }
     const updated = await this.prisma.case.update({
       where: { id },
@@ -67,7 +68,7 @@ export class CasesService {
   async remove(user: AuthenticatedUser, id: string): Promise<{ id: string; deleted: true }> {
     const existing = await this.prisma.case.findUnique({ where: { id } });
     if (!existing || !this.userCanAccess(user, existing.userId)) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Case not found' });
+      throw new NotFoundException({ code: ErrorCode.CASE_NOT_FOUND, message: 'Case not found' });
     }
     await this.prisma.case.delete({ where: { id } });
     return { id, deleted: true };

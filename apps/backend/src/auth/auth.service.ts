@@ -8,13 +8,13 @@ import { Inject, Injectable, Logger, UnauthorizedException } from '@nestjs/commo
 import type { PrismaClient } from '@citizen-shield/database';
 import type Redis from 'ioredis';
 import { env } from '@citizen-shield/config';
+import { ErrorCode } from '@citizen-shield/errors';
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   REFRESH_TOKEN_TTL_SECONDS,
   buildClearRefreshCookie,
   buildRefreshCookie,
   generateRefreshToken,
-  refreshKey,
   signAccessToken,
   verifyPassword,
 } from '@citizen-shield/auth';
@@ -55,14 +55,14 @@ export class AuthService {
     const user = await this.users.findByEmailWithHash(input.email);
     if (!user) {
       throw new UnauthorizedException({
-        code: 'INVALID_CREDENTIALS',
+        code: ErrorCode.AUTH_INVALID_CREDENTIALS,
         message: 'Invalid email or password',
       });
     }
     const ok = await verifyPassword(user.passwordHash, input.password);
     if (!ok) {
       throw new UnauthorizedException({
-        code: 'INVALID_CREDENTIALS',
+        code: ErrorCode.AUTH_INVALID_CREDENTIALS,
         message: 'Invalid email or password',
       });
     }
@@ -151,6 +151,3 @@ export class AuthService {
     return { response, refreshCookie, refreshToken };
   }
 }
-
-// Keep refreshKey re-export shape available for tests that may want to clear.
-export { refreshKey };

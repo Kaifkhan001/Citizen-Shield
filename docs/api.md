@@ -1,4 +1,4 @@
-# API Reference — Milestone 3
+# API Reference — Milestone 3.5
 
 All routes are mounted under the `/api` prefix. Every response is JSON and uses one of two envelopes:
 
@@ -7,22 +7,33 @@ All routes are mounted under the `/api` prefix. Every response is JSON and uses 
 { "success": true, "data": <T> }
 
 // Failure
-{ "success": false, "error": { "code": string, "message": string } }
+{ "success": false, "error": { "code": string, "message": string, "requestId"?: string } }
 ```
 
 The Zod schemas for every request and response live in `@citizen-shield/validation`. They are the source of truth — this doc summarizes the wire shape.
 
+The OpenAPI / Swagger UI is mounted at **`/api/docs`** in development (`NODE_ENV !== 'production'`). It is generated live from the controllers via `@nestjs/swagger`.
+
 ## Error codes
 
-| HTTP | `code`             | When                                                          |
-| ---- | ------------------ | ------------------------------------------------------------- |
-| 400  | `VALIDATION_ERROR` | Request body or params failed Zod validation                  |
-| 401  | `UNAUTHORIZED`     | Missing / invalid / expired access or refresh token           |
-| 403  | `FORBIDDEN`        | Authed but lacks the role for the resource                    |
-| 404  | `NOT_FOUND`        | Resource doesn't exist OR caller doesn't own it               |
-| 409  | `CONFLICT`         | Unique constraint violation (e.g. email already registered)   |
-| 429  | `RATE_LIMITED`     | Throttler trip — see [authentication.md](./authentication.md) |
-| 500  | `INTERNAL_ERROR`   | Unhandled server error                                        |
+The single source of truth is `packages/errors/src/index.ts`. The HTTP status column below is derived from `ErrorStatus` and is the canonical mapping.
+
+| HTTP | `code`                     | When                                                          |
+| ---- | -------------------------- | ------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`         | Body, query, or route param failed Zod validation             |
+| 401  | `AUTH_UNAUTHORIZED`        | Missing / empty `Authorization` header                        |
+| 401  | `AUTH_INVALID_CREDENTIALS` | Wrong email or password                                       |
+| 401  | `AUTH_INVALID_TOKEN`       | Access token signature wrong or malformed                     |
+| 401  | `AUTH_EXPIRED_TOKEN`       | Access token past expiry (frontend should silent-refresh)     |
+| 401  | `AUTH_REFRESH_EXPIRED`     | Refresh cookie missing / revoked / unknown                    |
+| 403  | `AUTH_FORBIDDEN`           | Authed but lacks the role for the resource                    |
+| 404  | `CASE_NOT_FOUND`           | Case doesn't exist OR caller doesn't own it                   |
+| 409  | `AUTH_EMAIL_TAKEN`         | `User.email` unique constraint violation                      |
+| 410  | `CASE_ALREADY_DELETED`     | Soft-delete target already deleted                            |
+| 429  | `RATE_LIMIT_EXCEEDED`      | Throttler trip — see [authentication.md](./authentication.md) |
+| 500  | `INTERNAL_SERVER_ERROR`    | Unhandled server error (stack trace logged, never returned)   |
+
+The legacy aliases `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `INTERNAL_ERROR` still resolve to the right status if a caller emits one. New code should use the scoped codes above.
 
 The frontend's `api()` wrapper always returns a `Result<T>`:
 
@@ -30,15 +41,16 @@ The frontend's `api()` wrapper always returns a `Result<T>`:
 type Result<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
 ```
 
-HTTP-level throws (network down, CORS) become `{ ok: false, error: { code: 'NETWORK_ERROR', ... } }`.
+HTTP-level throws (network down, CORS) become `{ ok: false, error: { code: 'NETWORK_ERROR', ... } }`. The frontend switches on `code` (typed via the `ErrorCode` registry) to decide whether to silent-refresh (`AUTH_EXPIRED_TOKEN`) or send the user back to `/login`.
 
 ## Common headers
 
-| Header          | Sent on                | Purpose                                  |
-| --------------- | ---------------------- | ---------------------------------------- |
-| `Authorization` | Authed requests        | `Bearer <access token>`                  |
-| `Cookie`        | Requests to `/refresh` | Carries the `cs_refresh` HttpOnly cookie |
-| `Content-Type`  | All requests with body | `application/json`                       |
+| Header          | Sent on                | Purpose                                             |
+| --------------- | ---------------------- | --------------------------------------------------- |
+| `Authorization` | Authed requests        | `Bearer <access token>`                             |
+| `Cookie`        | Requests to `/refresh` | Carries the `cs_refresh` HttpOnly cookie            |
+| `Content-Type`  | All requests with body | `application/json`                                  |
+| `X-Request-ID`  | Inbound or auto-minted | Echoed on every response; appears in error envelope |
 
 ## Auth
 
@@ -52,7 +64,7 @@ Create a new account.
 { "email": "you@example.com", "password": "correct horse battery staple", "name": "You" }
 ```
 
-Validation: email is RFC-shaped; password is ≥ 12 chars; name is 1–80 chars.
+Validation: email is RFC-shaped; password is ≥ 8 chars; name is 1–100 chars.
 
 **Response 201**
 
@@ -61,23 +73,24 @@ Validation: email is RFC-shaped; password is ≥ 12 chars; name is 1–80 chars.
   "success": true,
   "data": {
     "user": {
-      "id": "cl...",
+      "id": "uuid",
       "email": "you@example.com",
       "name": "You",
       "role": "USER",
       "createdAt": "2026-06-26T12:34:56.789Z",
       "updatedAt": "2026-06-26T12:34:56.789Z"
     },
-    "accessToken": "ey..."
+    "accessToken": "ey...",
+    "expiresIn": 900
   }
 }
 ```
 
-**Side effects:** Sets the `cs_refresh` cookie.
+**Side effects:** Sets the `cs_refresh` cookie (HttpOnly, `SameSite=Lax`, `Secure` outside dev, 7-day TTL).
 
 **Errors**
 
-- `409 CONFLICT` — email already registered.
+- `409 AUTH_EMAIL_TAKEN` — email already registered.
 
 ### POST `/api/auth/login`
 
@@ -89,13 +102,13 @@ Exchange credentials for tokens.
 { "email": "you@example.com", "password": "correct horse battery staple" }
 ```
 
-**Response 200** — same shape as `/auth/register`.
+**Response 201** — same shape as `/auth/register`.
 
 **Side effects:** Sets the `cs_refresh` cookie.
 
 **Errors**
 
-- `401 UNAUTHORIZED` — wrong email or password.
+- `401 AUTH_INVALID_CREDENTIALS` — wrong email or password.
 
 ### POST `/api/auth/refresh`
 
@@ -103,23 +116,25 @@ Mint a fresh access + refresh pair. The browser must send the `cs_refresh` cooki
 
 **Request** — empty body. Cookie is the auth.
 
-**Response 200** — same shape as `/auth/register`. A new `cs_refresh` cookie replaces the old one.
+**Response 201** — same shape as `/auth/register`. A new `cs_refresh` cookie replaces the old one (rotation).
 
 **Errors**
 
-- `401 UNAUTHORIZED` — cookie missing, signature invalid, expired, rotated (jti not in Redis), or unknown user.
+- `401 AUTH_REFRESH_EXPIRED` — cookie missing, signature invalid, revoked, rotated, or unknown user.
 
 ### POST `/api/auth/logout`
 
 Invalidate the current refresh token.
 
-**Request** — empty body. Access token in `Authorization`; refresh cookie is also fine.
+**Request** — empty body. Access token in `Authorization` is recommended; refresh cookie is also accepted.
 
-**Response 204** — empty body. The `cs_refresh` cookie is cleared by the response.
+**Response 201**
 
-**Errors**
+```json
+{ "success": true, "data": null }
+```
 
-- `401 UNAUTHORIZED` — only if no refresh cookie AND no access token; otherwise succeeds idempotently.
+**Side effects:** `cs_refresh` cookie is cleared by the response.
 
 ### GET `/api/auth/me`
 
@@ -133,7 +148,7 @@ Return the current user.
 {
   "success": true,
   "data": {
-    "id": "cl...",
+    "id": "uuid",
     "email": "you@example.com",
     "name": "You",
     "role": "USER",
@@ -144,6 +159,12 @@ Return the current user.
 ```
 
 `passwordHash` is never included — this is the `SafeUser` shape.
+
+**Errors**
+
+- `401 AUTH_UNAUTHORIZED` — missing token.
+- `401 AUTH_INVALID_TOKEN` — bad signature.
+- `401 AUTH_EXPIRED_TOKEN` — past expiry (frontend should silent-refresh).
 
 ## Cases
 
@@ -163,7 +184,7 @@ Create a new case.
 }
 ```
 
-Validation: title 3–120 chars; description 10–5000 chars; category must be a known enum (`CONSUMER_COMPLAINT` or `EMPLOYMENT_DISPUTE` in M3).
+Validation: title 1–200 chars; description 1–5000 chars; category must be a known enum (`CONSUMER_COMPLAINT` or `EMPLOYMENT_DISPUTE` in M3).
 
 **Response 201**
 
@@ -171,15 +192,14 @@ Validation: title 3–120 chars; description 10–5000 chars; category must be a
 {
   "success": true,
   "data": {
-    "id": "cl...",
+    "id": "uuid",
     "title": "Refund denied for defective headphones",
     "description": "Bought them on 2026-05-01. Left ear stopped working after 2 weeks.",
     "category": "CONSUMER_COMPLAINT",
     "status": "DRAFT",
-    "userId": "cl...",
+    "userId": "uuid",
     "createdAt": "2026-06-26T12:34:56.789Z",
-    "updatedAt": "2026-06-26T12:34:56.789Z",
-    "deletedAt": null
+    "updatedAt": "2026-06-26T12:34:56.789Z"
   }
 }
 ```
@@ -196,8 +216,8 @@ List cases owned by the calling user.
 {
   "success": true,
   "data": [
-    { "id": "cl...", "title": "...", "category": "CONSUMER_COMPLAINT", "status": "DRAFT", ... },
-    { "id": "cl...", "title": "...", "category": "EMPLOYMENT_DISPUTE", "status": "OPEN", ... }
+    { "id": "uuid", "title": "...", "category": "CONSUMER_COMPLAINT", "status": "DRAFT", ... },
+    { "id": "uuid", "title": "...", "category": "EMPLOYMENT_DISPUTE", "status": "OPEN", ... }
   ]
 }
 ```
@@ -212,7 +232,8 @@ Fetch a single case.
 
 **Errors**
 
-- `404 NOT_FOUND` — case doesn't exist OR belongs to another user.
+- `400 VALIDATION_ERROR` — `:id` is not a UUID.
+- `404 CASE_NOT_FOUND` — case doesn't exist OR belongs to another user.
 
 ### PATCH `/api/cases/:id`
 
@@ -224,31 +245,37 @@ Update a case. All fields optional; supply only what changes.
 { "title": "Updated title", "status": "OPEN" }
 ```
 
-Validation mirrors the create schema. `status` must be a known enum (`DRAFT`, `OPEN`, `CLOSED`).
+Validation mirrors the create schema. `status` must be a known enum (`DRAFT`, `OPEN`, `EVIDENCE_PENDING`, `READY_FOR_COMPLAINT`, `CLOSED`).
 
 **Response 200** — updated `CaseResponse`.
 
 **Errors**
 
-- `404 NOT_FOUND` — same as `GET`.
+- `400 VALIDATION_ERROR` — `:id` is not a UUID OR the body is empty.
+- `404 CASE_NOT_FOUND` — same as `GET`.
 
 ### DELETE `/api/cases/:id`
 
 Soft-delete a case.
 
-**Response 204** — empty body.
+**Response 200**
+
+```json
+{ "success": true, "data": { "id": "uuid", "deleted": true } }
+```
 
 **Side effects:** Sets `deletedAt` to `now()`. The row is hidden from `GET /cases` and `GET /cases/:id`. There is no hard-delete in M3.
 
 **Errors**
 
-- `404 NOT_FOUND` — same as `GET`.
+- `400 VALIDATION_ERROR` — `:id` is not a UUID.
+- `404 CASE_NOT_FOUND` — same as `GET`.
 
 ## Health
 
 ### GET `/api/health`
 
-Public liveness probe.
+Public liveness probe. Does not require auth.
 
 **Response 200**
 
@@ -256,26 +283,29 @@ Public liveness probe.
 {
   "success": true,
   "data": {
-    "service": "citizen-shield-api",
+    "service": "Citizen Shield API",
     "status": "ok",
     "timestamp": "2026-06-26T12:34:56.789Z"
   }
 }
 ```
 
+## Dev tooling
+
+### GET `/api/docs` (development only)
+
+Interactive Swagger UI for the API. Generated live from controller metadata
+via `@nestjs/swagger`. The route returns `404` in production.
+
 ## Versioning
 
-There is no version prefix in M3. Routes are pinned to `/api/*`. When breaking changes land in M4+, expect a `/api/v1/*` namespace introduced behind a single global prefix; existing routes will be deprecated in place for one milestone and removed in the milestone after.
+There is no version prefix in M3/M3.5. Routes are pinned to `/api/*`. When breaking changes land in M4+, expect a `/api/v1/*` namespace introduced behind a single global prefix; existing routes will be deprecated in place for one milestone and removed in the milestone after.
 
-## OpenAPI
-
-A machine-readable spec is **not** generated in M3. The Zod schemas in `@citizen-shield/validation` are the contract — they are imported by both the backend (for parsing) and the frontend (for typing responses). An OpenAPI generator is a candidate for M4.
-
-## What's NOT in M3
+## What's NOT in M3 / M3.5
 
 - Pagination / filtering / search on `/cases`
 - Evidence, timeline, complaint routes (stubs only)
 - Webhooks
 - File uploads
 
-See the M3 plan in the conversation history and `docs/architecture.md` for the broader scope.
+See the M3.5 plan and `docs/architecture.md` for the broader scope.

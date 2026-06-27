@@ -11,6 +11,15 @@ export type {
   AuthUser,
 } from '@citizen-shield/types';
 export * from '@citizen-shield/validation';
+export {
+  ErrorCode,
+  ErrorStatus,
+  ErrorMessage,
+  isTransportCode,
+  getStatusForCode,
+  getMessageForCode,
+} from '@citizen-shield/errors';
+export type { ErrorCode as ErrorCodeType } from '@citizen-shield/errors';
 
 export const ENDPOINTS = {
   auth: {

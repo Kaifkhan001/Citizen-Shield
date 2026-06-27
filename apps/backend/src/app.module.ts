@@ -19,14 +19,14 @@ import { pinoOptions } from '@citizen-shield/logger';
     // Pino logger — JSON in prod, pretty in dev.
     LoggerModule.forRoot(pinoOptions),
 
-    // Rate limiting. Defaults are loose (100 req / 60s); auth routes use
-    // `@Throttle({ default: { limit: 5, ttl: 60_000 } })` to get a stricter
-    // limit per IP. Tests disable throttling so a single suite can issue
-    // hundreds of auth requests without tripping the limiter.
+    // Rate limiting. Defaults are env-driven (`RATE_LIMIT_TTL`,
+    // `RATE_LIMIT_LIMIT`); auth routes use a stricter per-route `@Throttle`
+    // (5 req / minute) to deter credential stuffing. Tests raise the limit so
+    // a single suite can issue hundreds of auth requests.
     ThrottlerModule.forRoot([
       {
-        ttl: env.NODE_ENV === 'test' ? 1_000 : 60_000,
-        limit: env.NODE_ENV === 'test' ? 100_000 : 100,
+        ttl: env.NODE_ENV === 'test' ? 1_000 : env.RATE_LIMIT_TTL,
+        limit: env.NODE_ENV === 'test' ? 100_000 : env.RATE_LIMIT_LIMIT,
       },
     ]),
 

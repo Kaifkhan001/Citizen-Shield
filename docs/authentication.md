@@ -1,71 +1,90 @@
 # Authentication
 
-This document covers how Citizen Shield handles authentication in Milestone 3 (M3). It is the source of truth for token lifetimes, storage, rotation, and request validation. The API surface is documented separately in [`docs/api.md`](./api.md).
+This document covers how Citizen Shield handles authentication in Milestones 3 / 3.5. It is the source of truth for token lifetimes, storage, rotation, and request validation. The API surface is documented separately in [`docs/api.md`](./api.md).
 
 ## Token model
 
-Two tokens, distinct lifetimes, distinct storage:
+Two tokens, distinct lifetimes, distinct storage, distinct shapes:
 
-| Token         | Lifetime | Storage                                          | Purpose                             |
-| ------------- | -------- | ------------------------------------------------ | ----------------------------------- |
-| Access token  | 15 min   | In-memory (browser tab) + `Authorization` header | Authenticates API requests          |
-| Refresh token | 7 days   | `HttpOnly` + `Secure` + `SameSite=Lax` cookie    | Mints a fresh access + refresh pair |
+| Token         | Lifetime | Shape                               | Storage                                          | Purpose                             |
+| ------------- | -------- | ----------------------------------- | ------------------------------------------------ | ----------------------------------- |
+| Access token  | 15 min   | JWT signed with HS256 (`jose`)      | In-memory (browser tab) + `Authorization` header | Authenticates API requests          |
+| Refresh token | 7 days   | Opaque random string (`<id>.<sec>`) | `HttpOnly` + `Secure` + `SameSite=Lax` cookie    | Mints a fresh access + refresh pair |
 
-Both are JWTs signed with HS256. The signing secret lives in `JWT_SECRET` (see `packages/config`). Access tokens carry `{ sub, role, email }`; refresh tokens carry the same payload plus a `jti` (token id) used for rotation tracking.
+The access token is a JWT carrying `{ sub, email, role }`. The refresh token is **not** a JWT — it is a 32-byte random string (base64url-encoded), split into a public `<tokenId>` and a private `<secret>`. Only the `tokenId` is recoverable from the cookie; the full token is required to authenticate against Redis.
 
-## Why two tokens
+The signing secret for the access JWT lives in `JWT_SECRET` (see `packages/config`).
+
+## Why two tokens (and two shapes)
 
 Access tokens must be sent on every request, so they need to be readable by JavaScript — they live in memory and travel as `Authorization: Bearer <jwt>`. If an XSS bug leaks the access token, the attacker has at most 15 minutes of access and a hard refresh wipes the in-memory copy.
 
-Refresh tokens cannot be read by JavaScript. They ride in an `HttpOnly` cookie, so an XSS payload cannot exfiltrate them. They are only sent to `/auth/refresh` and `/auth/logout`.
+Refresh tokens cannot be read by JavaScript. They ride in an `HttpOnly` cookie, so an XSS payload cannot exfiltrate them. They are only sent to `/auth/refresh` and `/auth/logout`. Because they are opaque strings (not JWTs), there is no chance of accidentally trusting a forged signature — every refresh must hit Redis.
 
 ## Endpoints
 
-| Route                | Method | Auth required | Throttle   |
-| -------------------- | ------ | ------------- | ---------- |
-| `/api/auth/register` | POST   | No            | 5 / minute |
-| `/api/auth/login`    | POST   | No            | 5 / minute |
-| `/api/auth/refresh`  | POST   | Cookie only   | 5 / minute |
-| `/api/auth/logout`   | POST   | Yes           | standard   |
-| `/api/auth/me`       | GET    | Yes           | standard   |
+| Route                | Method | Auth required | Throttle                    |
+| -------------------- | ------ | ------------- | --------------------------- |
+| `/api/auth/register` | POST   | No            | `AUTH_RATE_LIMIT_*` (5/min) |
+| `/api/auth/login`    | POST   | No            | `AUTH_RATE_LIMIT_*` (5/min) |
+| `/api/auth/refresh`  | POST   | Cookie only   | `AUTH_RATE_LIMIT_*` (5/min) |
+| `/api/auth/logout`   | POST   | Yes           | global default              |
+| `/api/auth/me`       | GET    | Yes           | global default              |
 
-All five endpoints respond with the standard envelope (`{ success, data }` / `{ success: false, error: { code, message } }`). See [`docs/api.md`](./api.md) for the full request and response shapes.
+All five endpoints respond with the standard envelope (`{ success, data }` / `{ success: false, error: { code, message, requestId? } }`). See [`docs/api.md`](./api.md) for the full request and response shapes and the error code table.
 
 ## Refresh token rotation
 
 Refresh tokens are **rotated on every use**. The lifecycle:
 
-1. **Register / login.** Backend issues an access token (returned in JSON) and a refresh token (set as the `cs_refresh` cookie). The refresh token's `jti` is stored in Redis under `auth:refresh:<userId>:<jti>` with a 7-day TTL.
+1. **Register / login.** Backend issues an access token (returned in JSON) and a refresh token (set as the `cs_refresh` cookie). The refresh token's `tokenId` is stored in Redis under `auth:refresh:index:<tokenId>` with a 7-day TTL. The stored value is `<userId>:<secret>`.
 2. **Authenticated request.** The browser sends the access token in `Authorization`. The backend verifies the JWT and returns the response. No Redis call.
-3. **Access token expires.** The next API request returns `401 UNAUTHORIZED`.
+3. **Access token expires.** The next API request returns `401 AUTH_EXPIRED_TOKEN`.
 4. **Silent refresh.** The browser posts to `/auth/refresh` with the cookie. The backend:
-   - Verifies the JWT signature and expiry.
-   - Looks up `auth:refresh:<userId>:<jti>` in Redis. If missing → `401`, cookie is cleared.
-   - **Atomically deletes the old key** and writes a new key `auth:refresh:<userId>:<newJti>` with a fresh 7-day TTL.
+   - Splits the cookie value into `<tokenId>.<secret>`.
+   - Looks up `auth:refresh:index:<tokenId>` in Redis. If missing → `401 AUTH_REFRESH_EXPIRED`, cookie is cleared.
+   - Compares the supplied `<secret>` to the stored one. If mismatch → `401 AUTH_REFRESH_EXPIRED`.
+   - **Atomically deletes the old key** and writes a new key with a fresh 7-day TTL.
    - Issues a new access token and a new refresh cookie.
 5. **Subsequent requests** use the new access token. The old refresh cookie is overwritten by the response.
 
-If a refresh cookie is replayed after rotation (the old `jti` is no longer in Redis), the backend rejects it with `401` and clears the cookie. Replay attempts are logged.
+If a refresh cookie is replayed after rotation (the old `tokenId` is no longer in Redis), the backend rejects it with `401 AUTH_REFRESH_EXPIRED` and clears the cookie. Replay attempts are logged.
 
 ## Logout
 
-`/auth/logout` (with the access token in `Authorization`) deletes `auth:refresh:<userId>:<jti>` from Redis, then returns `204`. The browser clears its in-memory access token and the `AuthProvider` redirects to `/login`.
+`/auth/logout` (with the access token in `Authorization`) deletes `auth:refresh:index:<tokenId>` from Redis, then returns `{ success: true, data: null }`. The browser clears its in-memory access token and the `AuthProvider` redirects to `/login`.
 
 If the user has no access token but still has the cookie, `/auth/logout` still clears the cookie and the Redis key.
 
 ## Password hashing
 
-Passwords are hashed with **argon2id** (`argon2` npm package). Plaintext passwords are never stored, never logged, and never returned in any response. The `SafeUser` type strips `passwordHash` before it leaves the backend.
+Passwords are hashed with **argon2id** (`argon2` npm package) at OWASP-minimum parameters (19 MiB memory, time cost 2, parallelism 1). Plaintext passwords are never stored, never logged, and never returned in any response. The `SafeUser` type strips `passwordHash` before it leaves the backend.
+
+## Error codes from auth endpoints
+
+The frontend's `api()` wrapper switches on `code` (typed via the `ErrorCode` registry in `@citizen-shield/errors`) to decide whether to silent-refresh or to send the user back to `/login`:
+
+| Server-emitted code        | What the frontend does                             |
+| -------------------------- | -------------------------------------------------- |
+| `AUTH_EXPIRED_TOKEN`       | Silent-refresh once; retry the original request    |
+| `AUTH_INVALID_TOKEN`       | Clear local state, redirect to `/login`            |
+| `AUTH_UNAUTHORIZED`        | Clear local state, redirect to `/login`            |
+| `AUTH_REFRESH_EXPIRED`     | Clear local state, redirect to `/login`            |
+| `AUTH_INVALID_CREDENTIALS` | Surface the error (the user typed something wrong) |
+| `AUTH_EMAIL_TAKEN`         | Surface the error (registration flow)              |
 
 ## Route protection (backend)
 
 Every protected route uses `@UseGuards(JwtAuthGuard)`. The guard:
 
 1. Reads `Authorization: Bearer <jwt>`.
-2. Verifies via `@nestjs/jwt`.
-3. Attaches `{ userId, role, email }` to `request.user`.
+2. Verifies the JWT via `jose` (HS256). Returns:
+   - `AUTH_UNAUTHORIZED` if the header is missing/empty.
+   - `AUTH_INVALID_TOKEN` if the signature is wrong or the token is malformed.
+   - `AUTH_EXPIRED_TOKEN` if the signature is fine but the token is past expiry.
+3. Attaches `{ id, email, role }` to `request.user`.
 
-Controllers read the current user via the `@CurrentUser()` decorator. Ownership checks (e.g. "is this case owned by the calling user?") live in the **service** layer, not the guard, so they can return `404` instead of `403` when the user shouldn't even know the resource exists.
+Controllers read the current user via the `@CurrentUser()` decorator. Ownership checks (e.g. "is this case owned by the calling user?") live in the **service** layer, not the guard, so they can return `404 CASE_NOT_FOUND` instead of `403` when the user shouldn't even know the resource exists.
 
 `@Roles('ADMIN')` is opt-in per route via `RolesGuard`. There are no admin-only routes in M3, but the wiring is in place for M4.
 
@@ -98,30 +117,35 @@ Parallel 401s from the same page are coalesced — only one `/auth/refresh` is i
 
 ## Configuration
 
-| Env var                     | Default                                   | Purpose                                       |
-| --------------------------- | ----------------------------------------- | --------------------------------------------- |
-| `JWT_SECRET`                | (required)                                | HS256 secret for both access and refresh JWTs |
-| `ACCESS_TOKEN_TTL_SECONDS`  | `900`                                     | Access token lifetime                         |
-| `REFRESH_TOKEN_TTL_SECONDS` | `604800`                                  | Refresh token lifetime                        |
-| `WEB_ORIGINS`               | `http://localhost:3000` (comma-separated) | CORS allowlist for the frontend               |
-| `COOKIE_SECURE`             | `false` in dev, `true` otherwise          | Set the `Secure` flag on the refresh cookie   |
+| Env var                     | Default                                   | Purpose                              |
+| --------------------------- | ----------------------------------------- | ------------------------------------ |
+| `JWT_SECRET`                | (required)                                | HS256 secret for access JWTs         |
+| `ACCESS_TOKEN_TTL_SECONDS`  | `900`                                     | Access token lifetime                |
+| `REFRESH_TOKEN_TTL_SECONDS` | `604800`                                  | Refresh token lifetime               |
+| `WEB_ORIGINS`               | `http://localhost:3000` (comma-separated) | CORS allowlist for the frontend      |
+| `RATE_LIMIT_TTL`            | `60000` (ms)                              | Global rate-limit window             |
+| `RATE_LIMIT_LIMIT`          | `100`                                     | Global requests per window per IP    |
+| `AUTH_RATE_LIMIT_TTL`       | `60000` (ms)                              | `/auth/*` rate-limit window          |
+| `AUTH_RATE_LIMIT_LIMIT`     | `5`                                       | `/auth/*` requests per window per IP |
+| `LOG_LEVEL`                 | `info`                                    | Pino log level                       |
 
-Production must set `COOKIE_SECURE=true` (or rely on `NODE_ENV=production` flipping it).
+Production must set `JWT_SECRET` to a strong random value. The `Secure` flag on the refresh cookie flips on automatically when `NODE_ENV=production`.
 
 ## Threat model (brief)
 
-| Threat                          | Mitigation                                                          |
-| ------------------------------- | ------------------------------------------------------------------- |
-| Stolen access token (XSS)       | 15-minute TTL + in-memory only (cleared on hard refresh)            |
-| Stolen refresh token (XSS)      | `HttpOnly` flag, so XSS can't read it                               |
-| Replay of an old refresh token  | Atomic Redis delete on rotation; replay returns 401                 |
-| CSRF on `/auth/refresh`         | `SameSite=Lax` cookie + custom header check (added in M4 if needed) |
-| Brute-force login               | 5 / minute throttler on all auth routes                             |
-| Password breach (database leak) | argon2id; rotate hash on next login if you want belt-and-braces     |
+| Threat                          | Mitigation                                                             |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| Stolen access token (XSS)       | 15-minute TTL + in-memory only (cleared on hard refresh)               |
+| Stolen refresh token (XSS)      | `HttpOnly` flag, so XSS can't read it                                  |
+| Replay of an old refresh token  | Atomic Redis delete on rotation; replay returns `AUTH_REFRESH_EXPIRED` |
+| CSRF on `/auth/refresh`         | `SameSite=Lax` cookie + the throttle limits replay                     |
+| Brute-force login               | `/auth/*` throttler (5 / minute / IP)                                  |
+| Password breach (database leak) | argon2id; rotate hash on next login if you want belt-and-braces        |
+| Log spam leaking tokens         | `pino` redaction of `authorization`, `cookie`, `set-cookie` headers    |
 
 CSRF for `/auth/refresh` is currently mitigated by `SameSite=Lax` only. For M4, add a custom-header check (e.g. `X-Requested-With`) or a double-submit token if the frontend ever embeds in a context where `Lax` is not enough.
 
-## What's NOT in M3
+## What's NOT in M3 / M3.5
 
 - Email verification
 - Password reset

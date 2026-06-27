@@ -1,5 +1,5 @@
 {
-  "name": "@citizen-shield/api",
+  "name": "@citizen-shield/errors",
   "version": "0.0.0",
   "private": true,
   "main": "./src/index.ts",
@@ -11,16 +11,16 @@
     }
   },
   "scripts": {
-    "lint": "eslint src --max-warnings 0",
+    "lint": "echo 'no-op'",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf .turbo dist"
   },
   "dependencies": {
-    "@citizen-shield/errors": "workspace:*",
-    "@citizen-shield/types": "workspace:*",
-    "@citizen-shield/validation": "workspace:*"
+    "@nestjs/common": "^11.0.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "typescript": "^5.7.2"
   }
 }

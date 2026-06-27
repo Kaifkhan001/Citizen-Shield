@@ -10,7 +10,9 @@
 import 'reflect-metadata';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type Redis from 'ioredis';
+import { env } from '@citizen-shield/config';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
 import { EnvelopeInterceptor } from '../src/common/interceptors/envelope.interceptor';
@@ -29,6 +31,18 @@ export async function bootstrapTestApp(): Promise<INestApplication> {
   app.setGlobalPrefix('api');
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new EnvelopeInterceptor());
+  // Mirror `main.ts`: mount Swagger outside production so e2e can assert on
+  // it. `NODE_ENV` is set to `'test'` by `setup-env.ts`.
+  if (env.NODE_ENV !== 'production') {
+    const docConfig = new DocumentBuilder()
+      .setTitle('Citizen Shield API')
+      .setDescription('Authentication and case CRUD endpoints (M3.5).')
+      .setVersion('0.0.0')
+      .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
+      .build();
+    const document = SwaggerModule.createDocument(app, docConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  }
   await app.init();
   return app;
 }

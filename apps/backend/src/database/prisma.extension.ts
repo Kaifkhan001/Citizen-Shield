@@ -8,8 +8,8 @@
 // row, and the extension quietly filters.
 //
 // To permanently delete a row (an admin action that we don't expose yet), use
-// `prisma.$bypassSoftDelete.case.delete(...)` — that bypasses the extension
-// entirely.
+// `client.$bypassSoftDelete.case.delete(...)` — that delegates to a raw
+// PrismaClient without the extension applied.
 
 import type { PrismaClient } from '@citizen-shield/database';
 
@@ -44,7 +44,7 @@ interface ModelQueryArgs {
 }
 
 export function withSoftDelete(client: PrismaClient): PrismaClient {
-  return client.$extends({
+  const extended = client.$extends({
     name: 'soft-delete',
     query: {
       $allModels: {
@@ -124,6 +124,13 @@ export function withSoftDelete(client: PrismaClient): PrismaClient {
       },
     },
   }) as unknown as PrismaClient;
+
+  // Expose `$bypassSoftDelete` on the wrapped client so admin code (or tests)
+  // can hit the underlying PrismaClient without the extension intercepting.
+  // The bypass is a simple property assignment — Prisma clients are plain
+  // objects, so this is safe.
+  (extended as unknown as { $bypassSoftDelete: PrismaClient }).$bypassSoftDelete = client;
+  return extended;
 }
 
 export class SoftDeletedNotFoundError extends Error {

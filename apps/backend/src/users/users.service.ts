@@ -5,6 +5,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import type { PrismaClient, User } from '@citizen-shield/database';
 import { UserRole, type SafeUser } from '@citizen-shield/types';
 import { hashPassword } from '@citizen-shield/auth';
+import { ErrorCode } from '@citizen-shield/errors';
 import { PRISMA_CLIENT } from '../database/database.module';
 
 @Injectable()
@@ -21,7 +22,10 @@ export class UsersService {
   async findById(id: string): Promise<SafeUser> {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
-      throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+      throw new NotFoundException({
+        code: ErrorCode.NOT_FOUND,
+        message: 'User not found',
+      });
     }
     return this.toSafeUser(user);
   }
@@ -39,7 +43,7 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (existing) {
       throw new ConflictException({
-        code: 'CONFLICT',
+        code: ErrorCode.AUTH_EMAIL_TAKEN,
         message: 'A user with this email already exists',
       });
     }

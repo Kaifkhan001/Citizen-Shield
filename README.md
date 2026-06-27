@@ -5,11 +5,14 @@ Production-grade monorepo foundation.
 ## Stack
 
 - **Monorepo**: Turborepo + pnpm workspaces
-- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS
-- **Backend**: NestJS 10, TypeScript
-- **Database**: PostgreSQL + Prisma
-- **Cache**: Redis
-- **Validation**: Zod
+- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS, shadcn-style primitives
+- **Backend**: NestJS 10 with a global API prefix (`/api`)
+- **Database**: PostgreSQL via Prisma 6 (with a soft-delete client extension)
+- **Cache**: Redis (refresh token storage)
+- **Validation**: Zod 3 (one schema, shared by request parsing and frontend types)
+- **Logging**: Pino (pretty in dev, JSON in prod) + `nestjs-pino` request middleware
+- **Errors**: centralized registry in `@citizen-shield/errors` (single source of truth)
+- **Auth**: JWT (HS256, `jose`) access tokens + opaque refresh tokens in Redis, with rotation
 
 ## Structure
 
@@ -19,15 +22,21 @@ citizen-shield/
 │   ├── web/        # Next.js frontend
 │   └── backend/    # NestJS API
 ├── packages/
-│   ├── api/        # API client + response shapes
-│   ├── auth/       # Auth primitives (stub for M2)
-│   ├── config/     # Validated env config
-│   ├── database/   # Prisma client + schema
+│   ├── api/        # API client + envelope types + endpoint constants
+│   ├── auth/       # JWT/argon2 primitives + refresh cookie helpers
+│   ├── config/     # Zod-validated env config
+│   ├── database/   # Prisma client + schema + soft-delete extension
+│   ├── errors/     # ErrorCode registry, status map, envelope Zod schemas
+│   ├── logger/     # Pino + nestjs-pino setup, X-Request-ID propagation
 │   ├── types/      # Cross-cutting TypeScript types
 │   ├── utils/      # Generic helpers
-│   ├── validation/ # Zod schemas
-│   └── ai/         # AI provider integrations (stub for later)
+│   └── validation/ # Zod schemas for request/response shapes
 └── docs/
+    ├── api.md            # HTTP API reference
+    ├── architecture.md   # High-level architecture
+    ├── authentication.md # Token flow, refresh rotation, security posture
+    ├── database-schema.md
+    └── local-development.md
 ```
 
 ## Quick start
@@ -48,12 +57,14 @@ docker compose up -d
 
 ```bash
 cp .env.example .env
+# Edit .env — see packages/config/src/index.ts for the full schema.
 ```
 
-### 4. Generate Prisma client
+### 4. Generate Prisma client + run migrations
 
 ```bash
 pnpm db:generate
+pnpm db:migrate
 ```
 
 ### 5. Start dev servers
@@ -65,43 +76,41 @@ pnpm dev
 - Web: <http://localhost:3000>
 - API: <http://localhost:3001/api>
 - Health: <http://localhost:3001/api/health>
+- Swagger UI (dev only): <http://localhost:3001/api/docs>
 
 ## Scripts
 
-| Command            | What it does                          |
-| ------------------ | ------------------------------------- |
-| `pnpm dev`         | Run all apps in dev mode (Turbo)      |
-| `pnpm build`       | Build all apps and packages           |
-| `pnpm lint`        | Lint all workspaces                   |
-| `pnpm format`      | Format with Prettier                  |
-| `pnpm db:generate` | Generate Prisma client                |
-| `pnpm db:migrate`  | Run Prisma migrations (M2+)           |
-| `pnpm db:studio`   | Open Prisma Studio                    |
+| Command            | What it does                            |
+| ------------------ | --------------------------------------- |
+| `pnpm dev`         | Run all apps in dev mode (Turbo)        |
+| `pnpm build`       | Build all apps and packages             |
+| `pnpm lint`        | Lint all workspaces                     |
+| `pnpm format`      | Format with Prettier                    |
+| `pnpm type-check`  | Run `tsc --noEmit` across the workspace |
+| `pnpm test`        | Run all unit + e2e tests                |
+| `pnpm db:generate` | Generate Prisma client                  |
+| `pnpm db:migrate`  | Run Prisma migrations                   |
+| `pnpm db:seed`     | Seed the dev database                   |
+| `pnpm db:studio`   | Open Prisma Studio                      |
 
-## Milestone 1 — Foundation
+## Milestone status
 
-This milestone ships the foundation only:
+- **M1 — Foundation** ✅ monorepo, Next.js, NestJS `/api/health`, Prisma + Redis, tooling
+- **M2 — Core domain** ✅ six Prisma models, enums, soft-delete, domain module skeletons
+- **M3 — Auth & case CRUD** ✅ register/login/refresh/logout/me, case CRUD, ownership filter, RBAC hook
+- **M3.5 — Platform hardening** ✅
+  - OpenAPI / Swagger UI at `/api/docs` (dev-only)
+  - Centralized `@citizen-shield/errors` registry consumed by the global filter
+  - Prisma `P2002` / `P2025` → typed error codes
+  - X-Request-ID propagation end-to-end (logs + error envelope)
+  - UUID validation on route params (400 `VALIDATION_ERROR`)
+  - Env-driven rate limiting
+  - Backward-compatible envelope with `requestId` and optional `details`
+  - Test suite (25 e2e tests across auth, cases, and UUID validation)
 
-- ✅ Monorepo with Turborepo + pnpm
-- ✅ Next.js frontend
-- ✅ NestJS backend with `/api/health`
-- ✅ Prisma wired to PostgreSQL
-- ✅ Redis client configured
-- ✅ Docker Compose for Postgres + Redis
-- ✅ Tooling: ESLint, Prettier, Husky, lint-staged
-- ❌ No business logic, no auth, no models, no AI
+## Out of scope (deferred)
 
-## Milestone 2 — Core Domain
+AI, evidence uploads, complaint generation, timelines, notifications, search, pagination,
+filtering, RAG, lawyer features, consumer-specific workflows, employment-specific workflows.
 
-The data model that will power the rest of the platform. See `docs/database-schema.md`.
-
-- ✅ Six Prisma models: `User`, `Case`, `Evidence`, `CaseTimeline`, `Complaint`, `AIConversation`
-- ✅ Six enums covering roles, categories, statuses, types, and timeline events
-- ✅ Soft-delete (`deletedAt`) on `Case` / `Evidence` / `Complaint`
-- ✅ Append-only `CaseTimeline` and `AIConversation`
-- ✅ NestJS domain modules wired (`Cases`, `Evidence`, `Timeline`, `Complaints`) — empty, no business logic
-- ✅ Next.js placeholder routes: `/dashboard`, `/cases`, `/cases/[id]`
-- ✅ Initial migration: `20260624000000_init_core_domain`
-- ❌ No auth, no APIs, no AI, no file uploads
-
-See `docs/` for architectural notes.
+See `docs/` for the full design.

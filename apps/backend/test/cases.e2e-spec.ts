@@ -120,7 +120,7 @@ describe('Cases (e2e)', () => {
       .get(`/api/cases/${bobCase.body.data.id}`)
       .set('Authorization', `Bearer ${aliceToken}`);
     expect(res.status).toBe(404);
-    expect(res.body.error.code).toBe('NOT_FOUND');
+    expect(res.body.error.code).toBe('CASE_NOT_FOUND');
   });
 
   it('returns 404 when alice PATCHes bob case', async () => {

@@ -5,22 +5,24 @@ import {
   Get,
   HttpCode,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import {
   createCaseSchema,
   updateCaseSchema,
+  uuidSchema,
   type CaseListResponse,
   type CaseResponse,
 } from '@citizen-shield/validation';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, type AuthenticatedUser } from '../common/decorators/current-user.decorator';
-import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
+import { ZodParamPipe, ZodValidationPipe } from '../common/pipes/zod-validation.pipe';
 import { CasesService } from './cases.service';
 
+@ApiTags('Cases')
 @Controller('cases')
 @UseGuards(JwtAuthGuard)
 export class CasesController {
@@ -47,7 +49,7 @@ export class CasesController {
   @Get(':id')
   findOne(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', new ZodParamPipe(uuidSchema)) id: string,
   ): Promise<CaseResponse> {
     return this.cases.findOne(user, id);
   }
@@ -55,7 +57,7 @@ export class CasesController {
   @Patch(':id')
   update(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', new ZodParamPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(updateCaseSchema))
     body: {
       title?: string;
@@ -71,7 +73,7 @@ export class CasesController {
   @HttpCode(200)
   remove(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', new ZodParamPipe(uuidSchema)) id: string,
   ): Promise<{ id: string; deleted: true }> {
     return this.cases.remove(user, id);
   }

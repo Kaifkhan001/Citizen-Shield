@@ -41,17 +41,30 @@ export async function signAccessToken(payload: Omit<JwtPayload, 'iat' | 'exp'>):
     .sign(secret);
 }
 
-export async function verifyAccessToken(token: string): Promise<JwtPayload> {
-  const { payload } = await jwtVerify<JwtPayload>(token, secret, {
-    algorithms: ['HS256'],
-  });
-  const sub = payload.sub;
-  const email = payload.email;
-  const role = payload.role;
-  if (typeof sub !== 'string' || typeof email !== 'string' || typeof role !== 'string') {
-    throw new Error('Invalid token payload');
+export async function verifyAccessToken(
+  token: string,
+): Promise<{ ok: true; payload: JwtPayload } | { ok: false; reason: 'expired' | 'invalid' }> {
+  try {
+    const { payload } = await jwtVerify<JwtPayload>(token, secret, {
+      algorithms: ['HS256'],
+    });
+    const sub = payload.sub;
+    const email = payload.email;
+    const role = payload.role;
+    if (typeof sub !== 'string' || typeof email !== 'string' || typeof role !== 'string') {
+      return { ok: false, reason: 'invalid' };
+    }
+    return { ok: true, payload: { ...payload, sub, email, role: role as AuthRole } };
+  } catch (err) {
+    // jose throws `JWTExpired` (with code `ERR_JWT_EXPIRED`) when the token
+    // expired but is otherwise well-formed. Anything else (bad signature,
+    // malformed JWT, wrong algorithm) is treated as `invalid`.
+    const code = (err as { code?: string }).code;
+    if (code === 'ERR_JWT_EXPIRED') {
+      return { ok: false, reason: 'expired' };
+    }
+    return { ok: false, reason: 'invalid' };
   }
-  return { ...payload, sub, email, role: role as AuthRole };
 }
 
 // -----------------------------------------------------------------------------
@@ -123,13 +136,13 @@ export function buildClearRefreshCookie(secure: boolean): string {
 
 // -----------------------------------------------------------------------------
 // Redis key helper for refresh tokens.
+//
+// The actual implementation uses `auth:refresh:index:<tokenId>` (see
+// `auth.service.ts`); the value is `<userId>:<secret>`. This constant is
+// exported so tests and tooling can namespace their keys consistently.
 // -----------------------------------------------------------------------------
 
 export const REFRESH_REDIS_PREFIX = 'auth:refresh';
-
-export function refreshKey(userId: string, tokenId: string): string {
-  return `${REFRESH_REDIS_PREFIX}:${userId}:${tokenId}`;
-}
 
 // Re-export UserRole enum via @citizen-shield/types for convenience.
 export { UserRole };

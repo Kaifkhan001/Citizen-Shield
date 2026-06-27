@@ -12,10 +12,24 @@
 // This file is browser-only — it touches `document.cookie` and the
 // in-memory store.
 
-import { ENDPOINTS, type Result } from '@citizen-shield/api';
+import { ENDPOINTS, ErrorCode, type Result } from '@citizen-shield/api';
 import { clearAccessToken, getAccessToken, notifyUnauthorized, setAccessToken } from './auth-store';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
+
+// 401 codes that should trigger a silent refresh — anything else is treated
+// as a hard auth failure and surfaces to the caller. `AUTH_INVALID_CREDENTIALS`
+// is intentionally absent: that's the login/register flow reporting a wrong
+// password, which must NOT consume a refresh attempt.
+const REFRESHABLE_AUTH_CODES: ReadonlySet<string> = new Set([
+  ErrorCode.AUTH_UNAUTHORIZED,
+  ErrorCode.AUTH_INVALID_TOKEN,
+  ErrorCode.AUTH_EXPIRED_TOKEN,
+]);
+
+function isRefreshableAuthFailure(code: string | undefined): code is string {
+  return typeof code === 'string' && REFRESHABLE_AUTH_CODES.has(code);
+}
 
 export interface ApiOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -34,7 +48,7 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<Resul
   if (first.ok || opts.skipAuth || opts.skipRefresh) {
     return first;
   }
-  if (first.error.code !== 'UNAUTHORIZED') {
+  if (!isRefreshableAuthFailure(first.error.code)) {
     return first;
   }
 
@@ -48,7 +62,7 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<Resul
 
   // Second attempt — should now succeed with the fresh access token.
   const second = await raw<T>(path, opts);
-  if (!second.ok && second.error.code === 'UNAUTHORIZED') {
+  if (!second.ok && isRefreshableAuthFailure(second.error.code)) {
     clearAccessToken();
     notifyUnauthorized();
   }

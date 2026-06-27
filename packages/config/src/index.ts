@@ -66,6 +66,15 @@ const envSchema = z.object({
         .map((o) => o.trim())
         .filter(Boolean),
     ),
+
+  // M3.5 — rate limiting. `RATE_LIMIT_TTL` is the window in milliseconds;
+  // `RATE_LIMIT_LIMIT` is the number of requests allowed per window per IP.
+  // `AUTH_RATE_LIMIT_*` is the stricter per-route cap applied to `/auth/*`.
+  // Tests bump these so a single suite can issue hundreds of requests.
+  RATE_LIMIT_TTL: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_LIMIT: z.coerce.number().int().positive().default(100),
+  AUTH_RATE_LIMIT_TTL: z.coerce.number().int().positive().default(60_000),
+  AUTH_RATE_LIMIT_LIMIT: z.coerce.number().int().positive().default(5),
 });
 
 const parsed = envSchema.safeParse(process.env);

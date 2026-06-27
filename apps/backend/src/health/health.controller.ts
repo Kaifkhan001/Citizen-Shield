@@ -1,4 +1,5 @@
 import { Controller, Get, Inject } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import type { PrismaClient } from '@citizen-shield/database';
 import type Redis from 'ioredis';
 import type { HealthResponse } from '@citizen-shield/validation';
@@ -7,6 +8,7 @@ import { PRISMA_CLIENT } from '../database/database.module';
 
 const SERVICE_NAME = 'Citizen Shield API';
 
+@ApiTags('Health')
 @Controller('health')
 export class HealthController {
   constructor(
