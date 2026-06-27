@@ -51,6 +51,21 @@ const envSchema = z.object({
 
   BACKEND_PORT: z.coerce.number().int().positive().default(3001),
   WEB_PORT: z.coerce.number().int().positive().default(3000),
+
+  // M3 additions
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  // Comma-separated list of allowed origins for CORS. Used by the backend's
+  // express CORS config. Empty in production means "use NEXT_PUBLIC_API_URL's
+  // origin" — but in dev we default to localhost:3000.
+  WEB_ORIGINS: z
+    .string()
+    .default('http://localhost:3000')
+    .transform((s) =>
+      s
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean),
+    ),
 });
 
 const parsed = envSchema.safeParse(process.env);

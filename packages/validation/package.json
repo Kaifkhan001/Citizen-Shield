@@ -16,6 +16,7 @@
     "clean": "rm -rf .turbo dist"
   },
   "dependencies": {
+    "@citizen-shield/types": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

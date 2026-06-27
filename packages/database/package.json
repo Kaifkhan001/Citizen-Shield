@@ -13,15 +13,16 @@
   "scripts": {
     "lint": "eslint src --max-warnings 0",
     "type-check": "tsc --noEmit",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts",
-    "prisma:studio": "prisma studio",
+    "prisma:generate": "dotenv -e ../../.env -- prisma generate",
+    "prisma:migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "prisma:seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "prisma:studio": "dotenv -e ../../.env -- prisma studio",
     "prisma:format": "prisma format",
     "clean": "rm -rf .turbo dist"
   },
   "dependencies": {
-    "@prisma/client": "^6.1.0"
+    "@prisma/client": "^6.1.0",
+    "argon2": "^0.41.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

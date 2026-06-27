@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { Toaster } from 'sonner';
+import { AuthProvider } from '@/hooks/use-auth';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -13,7 +15,12 @@ export default function RootLayout({
 }): React.ReactElement {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        <AuthProvider>
+          {children}
+          <Toaster richColors position="top-right" />
+        </AuthProvider>
+      </body>
     </html>
   );
 }
