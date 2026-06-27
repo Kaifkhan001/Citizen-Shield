@@ -56,3 +56,6 @@ packages/database/prisma/dev.db*
 # Husky
 .husky/_
 .husky/.gitignore
+
+# Claude Code local settings (per-developer tooling config)
+.claude/settings.local.json
