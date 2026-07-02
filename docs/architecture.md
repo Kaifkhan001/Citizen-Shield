@@ -92,3 +92,70 @@ PrismaClient        (extended with soft-delete; no service bypasses it)
 - **Correlation IDs**: every response carries an `X-Request-ID` header;
   every error envelope includes `error.requestId`. Logs are tagged with the
   same id.
+
+## M4 — AI intake conversation
+
+The intake feature replaces the "type your case into a form" UX with a
+multi-turn dialogue driven by a state machine. No agent framework,
+no streaming, no vector DB.
+
+```
+┌────────────┐    POST /start     ┌────────────────────┐
+│ /intake UI │ ─────────────────▶ │ IntakeService      │
+└────────────┘                    │  (backend)         │
+       ▲                          └──────────┬─────────┘
+       │                                     │ chat(req)
+       │                          ┌──────────▼─────────┐
+       │                          │ AIProvider         │
+       │                          │  ├ MockProvider    │
+       │                          │  └ OpenAIProvider  │
+       │                          └──────────┬─────────┘
+       │                                     │ AiTurnResponse
+       │                          ┌──────────▼─────────┐
+       │                          │ transition()       │
+       │                          │  (pure reducer)    │
+       │                          └──────────┬─────────┘
+       │                                     │
+       │  GET /:id  ┌────────────┐           │
+       └────────────│ Conversation│◀──────────┘
+                    │  (Postgres) │
+                    └────────────┘
+```
+
+State machine (see `packages/ai/src/state.ts`):
+
+```
+   started
+      ▼
+   gathering_problem  ──(detectedCategory)──▶  gathering_category
+                                                    │
+                                                    ▼
+                                              gathering_facts
+                                                    │
+                              (isReadyToConfirm+facts)│
+                                                    ▼
+                                          gathering_followups
+                                                    │
+                              (questions drained)    │
+                                                    ▼
+                                          ready_to_confirm
+                                                    │ POST /:id/confirm
+                                                    ▼
+                                              confirmed
+```
+
+- Any state ─(AI bad output twice)─▶ failed.
+- `confirmed` and `failed` are terminal: further `transition()` calls
+  return `invalid: true`; the service maps that to `INTAKE_INVALID_STATE`.
+- The `Conversation` row is created on `/start`. The `Case` row is
+  **only** created on `POST /:id/confirm`, in a transaction that also
+  writes the `CaseTimeline` event and flips the conversation to
+  `CONFIRMED`.
+
+Providers are selected at boot via `AI_PROVIDER` (`mock` default,
+`openai` requires `OPENAI_API_KEY`). The wire contract — the
+`aiTurnResponseSchema` in `packages/ai/src/schemas.ts` — is the same
+for both. `safeParseAiResponse` classifies parse failures as
+`malformed_json` vs `schema_mismatch`; the service retries once with
+a "reply with JSON only" instruction before flipping the conversation
+to `failed` and returning 502.

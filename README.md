@@ -107,10 +107,19 @@ pnpm dev
   - Env-driven rate limiting
   - Backward-compatible envelope with `requestId` and optional `details`
   - Test suite (25 e2e tests across auth, cases, and UUID validation)
+- **M4 — AI intake conversation** ✅
+  - Pure-TypeScript state machine in `packages/ai` (no LangChain / agent framework)
+  - `AIProvider` interface with `MockProvider` (default) and `OpenAIProvider`
+  - Five `/api/intake/*` routes (`/start`, `/:id/message`, `/:id`, `/:id/confirm`, `/:id/abort`)
+  - `Conversation` row created on `/start`; `Case` only created on `/confirm`
+  - Zod-validated `aiTurnResponseSchema`; one retry on parse failure
+  - Frontend chat at `/intake` and `/intake/[id]` (bubbles, typing indicator, optimistic append)
+  - Confirm form at `/intake/[id]/confirm` with title/description/category edits
 
 ## Out of scope (deferred)
 
-AI, evidence uploads, complaint generation, timelines, notifications, search, pagination,
-filtering, RAG, lawyer features, consumer-specific workflows, employment-specific workflows.
+Streaming chat (M5), evidence uploads, complaint generation, timelines, notifications, search,
+pagination, filtering, RAG, lawyer features, consumer-specific workflows, employment-specific
+workflows, voice input, file uploads.
 
 See `docs/` for the full design.

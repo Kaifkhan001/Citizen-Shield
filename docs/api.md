@@ -1,4 +1,4 @@
-# API Reference — Milestone 3.5
+# API Reference — Milestone 4
 
 All routes are mounted under the `/api` prefix. Every response is JSON and uses one of two envelopes:
 
@@ -18,20 +18,26 @@ The OpenAPI / Swagger UI is mounted at **`/api/docs`** in development (`NODE_ENV
 
 The single source of truth is `packages/errors/src/index.ts`. The HTTP status column below is derived from `ErrorStatus` and is the canonical mapping.
 
-| HTTP | `code`                     | When                                                          |
-| ---- | -------------------------- | ------------------------------------------------------------- |
-| 400  | `VALIDATION_ERROR`         | Body, query, or route param failed Zod validation             |
-| 401  | `AUTH_UNAUTHORIZED`        | Missing / empty `Authorization` header                        |
-| 401  | `AUTH_INVALID_CREDENTIALS` | Wrong email or password                                       |
-| 401  | `AUTH_INVALID_TOKEN`       | Access token signature wrong or malformed                     |
-| 401  | `AUTH_EXPIRED_TOKEN`       | Access token past expiry (frontend should silent-refresh)     |
-| 401  | `AUTH_REFRESH_EXPIRED`     | Refresh cookie missing / revoked / unknown                    |
-| 403  | `AUTH_FORBIDDEN`           | Authed but lacks the role for the resource                    |
-| 404  | `CASE_NOT_FOUND`           | Case doesn't exist OR caller doesn't own it                   |
-| 409  | `AUTH_EMAIL_TAKEN`         | `User.email` unique constraint violation                      |
-| 410  | `CASE_ALREADY_DELETED`     | Soft-delete target already deleted                            |
-| 429  | `RATE_LIMIT_EXCEEDED`      | Throttler trip — see [authentication.md](./authentication.md) |
-| 500  | `INTERNAL_SERVER_ERROR`    | Unhandled server error (stack trace logged, never returned)   |
+| HTTP | `code`                         | When                                                          |
+| ---- | ------------------------------ | ------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`             | Body, query, or route param failed Zod validation             |
+| 400  | `INTAKE_MAX_MESSAGES_EXCEEDED` | User hit `INTAKE_MAX_MESSAGES` on the same conversation       |
+| 401  | `AUTH_UNAUTHORIZED`            | Missing / empty `Authorization` header                        |
+| 401  | `AUTH_INVALID_CREDENTIALS`     | Wrong email or password                                       |
+| 401  | `AUTH_INVALID_TOKEN`           | Access token signature wrong or malformed                     |
+| 401  | `AUTH_EXPIRED_TOKEN`           | Access token past expiry (frontend should silent-refresh)     |
+| 401  | `AUTH_REFRESH_EXPIRED`         | Refresh cookie missing / revoked / unknown                    |
+| 403  | `AUTH_FORBIDDEN`               | Authed but lacks the role for the resource                    |
+| 404  | `CASE_NOT_FOUND`               | Case doesn't exist OR caller doesn't own it                   |
+| 404  | `INTAKE_NOT_FOUND`             | Conversation doesn't exist OR caller doesn't own it           |
+| 409  | `AUTH_EMAIL_TAKEN`             | `User.email` unique constraint violation                      |
+| 409  | `INTAKE_INVALID_STATE`         | Conversation is in a terminal state for that operation        |
+| 410  | `CASE_ALREADY_DELETED`         | Soft-delete target already deleted                            |
+| 429  | `RATE_LIMIT_EXCEEDED`          | Throttler trip — see [authentication.md](./authentication.md) |
+| 429  | `AI_RATE_LIMITED`              | AI provider returned 401/403/429                              |
+| 502  | `AI_PROVIDER_INVALID_OUTPUT`   | AI returned invalid JSON twice in a row                       |
+| 502  | `AI_PROVIDER_UNAVAILABLE`      | AI provider returned a transport error (non-parse)            |
+| 500  | `INTERNAL_SERVER_ERROR`        | Unhandled server error (stack trace logged, never returned)   |
 
 The legacy aliases `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `INTERNAL_ERROR` still resolve to the right status if a caller emits one. New code should use the scoped codes above.
 
@@ -309,3 +315,111 @@ There is no version prefix in M3/M3.5. Routes are pinned to `/api/*`. When break
 - File uploads
 
 See the M3.5 plan and `docs/architecture.md` for the broader scope.
+
+## M4 — AI intake conversation
+
+All routes are `JwtAuthGuard`-protected and per-route-throttled via
+`AI_RATE_LIMIT_TTL` / `AI_RATE_LIMIT_LIMIT`. See
+[`docs/ai-intake.md`](./ai-intake.md) for the state machine and
+provider model.
+
+### POST `/api/intake/start`
+
+Begin a new intake conversation. Returns the local greeting as the
+first assistant message; the conversation is in state
+`gathering_problem` immediately.
+
+```json
+// Request body (optional)
+{ "initialMessage": "My landlord refuses to return my deposit" }
+
+// Response 201
+{
+  "success": true,
+  "data": {
+    "conversation": {
+      "id": "<uuid>",
+      "state": { "kind": "gathering_problem", "turnCount": 0, "lastUserMessage": null },
+      "messages": [{ "role": "assistant", "content": "Hi — I'm here...", "ts": "2026-07-01T12:00:00.000Z" }],
+      "extracted": { "keyFacts": [], "parties": [] },
+      "category": null,
+      "caseId": null,
+      "createdAt": "2026-07-01T12:00:00.000Z",
+      "updatedAt": "2026-07-01T12:00:00.000Z"
+    },
+    "assistantMessage": "Hi — I'm here to help you file a case. Tell me, in your own words, what's going on."
+  }
+}
+```
+
+### POST `/api/intake/:id/message`
+
+Send a user turn. The service calls the AI provider, folds the
+structured response into the reducer, and persists the next state.
+On a parse failure it retries once with a "JSON only" instruction
+before flipping the conversation to `FAILED` and returning
+`AI_PROVIDER_INVALID_OUTPUT` (502).
+
+```json
+// Request
+{ "message": "I bought a defective laptop and the store refused a refund." }
+
+// Response 201 — same envelope as /start, with the new state and
+// the assistant's reply.
+```
+
+Errors: `INTAKE_NOT_FOUND`, `INTAKE_INVALID_STATE`,
+`INTAKE_MAX_MESSAGES_EXCEEDED`, `AI_PROVIDER_INVALID_OUTPUT`,
+`AI_PROVIDER_UNAVAILABLE`, `AI_RATE_LIMITED`.
+
+### GET `/api/intake/:id`
+
+Rehydrate the conversation envelope. Same shape as the `conversation`
+field of `/start` and `/message`.
+
+### POST `/api/intake/:id/confirm`
+
+Finalize the conversation and create the underlying `Case`. Idempotent
+— a second confirm with state `CONFIRMED` returns the same `caseId`.
+
+```json
+// Response 200
+{
+  "success": true,
+  "data": {
+    "caseId": "<uuid>",
+    "case": {
+      "id": "<uuid>",
+      "title": "Defective laptop — refund denied",
+      "description": "Bought at the local electronics store on Market Street…",
+      "category": "CONSUMER_COMPLAINT",
+      "status": "DRAFT",
+      "userId": "<uuid>",
+      "createdAt": "2026-07-01T12:05:00.000Z",
+      "updatedAt": "2026-07-01T12:05:00.000Z"
+    }
+  }
+}
+```
+
+Errors: `INTAKE_NOT_FOUND`, `INTAKE_INVALID_STATE`.
+
+### POST `/api/intake/:id/abort`
+
+Mark the conversation as `FAILED`. Use case: the user changes their
+mind and wants to start over.
+
+```json
+// Request (optional)
+{ "reason": "user_aborted" }
+
+// Response 200 — same envelope as GET /:id.
+```
+
+## What's NOT in M4
+
+- Streaming responses (M5 swaps the chat layer for SSE).
+- Vector DB / RAG / embeddings.
+- Voice input, file uploads.
+- Multi-user conversations.
+- Branching / undo.

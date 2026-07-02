@@ -12,6 +12,8 @@ import { TimelineModule } from './timeline/timeline.module';
 import { ComplaintsModule } from './complaints/complaints.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { AiModule } from './ai/ai.module';
+import { IntakeModule } from './intake/intake.module';
 import { pinoOptions } from '@citizen-shield/logger';
 
 @Module({
@@ -39,6 +41,8 @@ import { pinoOptions } from '@citizen-shield/logger';
     EvidenceModule,
     TimelineModule,
     ComplaintsModule,
+    AiModule,
+    IntakeModule,
   ],
   providers: [
     {

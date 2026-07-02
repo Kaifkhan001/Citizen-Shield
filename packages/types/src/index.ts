@@ -14,10 +14,10 @@ export type { Prisma, PrismaClient } from '@citizen-shield/database';
 // Domain entities — re-exported from Prisma. Apps should prefer these
 // aliases when writing code that is not specifically DB-coupled.
 export type {
-  AIConversation,
   Case,
   CaseTimeline,
   Complaint,
+  Conversation,
   Evidence,
   User,
 } from '@citizen-shield/database';
@@ -28,6 +28,7 @@ export {
   CaseStatus,
   ComplaintStatus,
   ComplaintType,
+  IntakeState,
   TimelineEventType,
   UserRole,
 } from '@citizen-shield/database';

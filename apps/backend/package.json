@@ -14,6 +14,7 @@
     "clean": "rm -rf .turbo dist"
   },
   "dependencies": {
+    "@citizen-shield/ai": "workspace:*",
     "@citizen-shield/api": "workspace:*",
     "@citizen-shield/auth": "workspace:*",
     "@citizen-shield/config": "workspace:*",

@@ -79,8 +79,10 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 5, baseDelayMs = 25
  *
  * Order matters: raw DELETE on Case first to bypass the soft-delete
  * extension (which would otherwise turn deleteMany into an updateMany
- * setting deletedAt), then deleteMany on User. FK from
- * Case.userId→User.id is `onDelete: Restrict`.
+ * setting deletedAt). Conversation rows must be deleted before Case
+ * (Conversation.caseId → Case with `SetNull`, but User delete cascades
+ * to Conversation which conflicts with Case→User Restrict). CaseTimeline
+ * cascades from Case. Then deleteMany on User.
  */
 export async function clearTestData(scope: string): Promise<void> {
   // Defense-in-depth: scope must be a strict subdomain (letters, digits,
@@ -93,6 +95,11 @@ export async function clearTestData(scope: string): Promise<void> {
   const redis = getRedis();
   const pattern = `%@${scope}.test.local`;
 
+  await withRetry(() =>
+    prisma.$executeRawUnsafe(
+      `DELETE FROM "Conversation" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE '${pattern}')`,
+    ),
+  );
   await withRetry(() =>
     prisma.$executeRawUnsafe(
       `DELETE FROM "Case" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE '${pattern}')`,

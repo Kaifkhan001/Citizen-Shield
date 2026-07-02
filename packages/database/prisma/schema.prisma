@@ -64,6 +64,17 @@ enum TimelineEventType {
   STATUS_CHANGED
 }
 
+enum IntakeState {
+  STARTED
+  GATHERING_PROBLEM
+  GATHERING_CATEGORY
+  GATHERING_FACTS
+  GATHERING_FOLLOWUPS
+  READY_TO_CONFIRM
+  CONFIRMED
+  FAILED
+}
+
 // =============================================================================
 // MODELS
 // =============================================================================
@@ -78,6 +89,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   cases Case[]
+  conversations Conversation[]
 
   @@index([email])
   @@index([role])
@@ -94,11 +106,11 @@ model Case {
   updatedAt   DateTime     @updatedAt
   deletedAt   DateTime?
 
-  user            User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
   evidence        Evidence[]
   timelineEvents  CaseTimeline[]
   complaints      Complaint[]
-  aiConversations AIConversation[]
+  conversation    Conversation?
 
   @@index([userId])
   @@index([category])
@@ -152,15 +164,31 @@ model Complaint {
   @@index([deletedAt])
 }
 
-model AIConversation {
-  id               String   @id @default(uuid())
-  caseId           String
-  userMessage      String
-  assistantMessage String
-  createdAt        DateTime @default(now())
+// Conversation — a single intake session driven by the M4 AI assistant.
+// A Conversation exists before any Case does; the Case is only created
+// once the user confirms via POST /api/intake/:id/confirm. At that point
+// `state` becomes CONFIRMED and `caseId` is set (1:1).
+//
+// `messages` is an append-only log of { role, content, ts } rows. `extracted`
+// carries the running ExtractedFacts blob (title, summary, category,
+// keyFacts[], parties[], timeline, desiredOutcome). Both are JSONB so the
+// schema doesn't have to evolve per feature; the wire shape is enforced
+// by Zod schemas in @citizen-shield/validation.
+model Conversation {
+  id        String      @id @default(uuid())
+  userId    String
+  state     IntakeState @default(STARTED)
+  messages  Json        @default("[]")
+  extracted Json        @default("{}")
+  category  CaseCategory?
+  caseId    String?     @unique
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
-  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  case Case? @relation(fields: [caseId], references: [id], onDelete: SetNull)
 
-  @@index([caseId])
-  @@index([createdAt])
+  @@index([userId])
+  @@index([state])
+  @@index([category])
 }

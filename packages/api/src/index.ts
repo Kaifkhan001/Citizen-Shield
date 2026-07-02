@@ -36,6 +36,13 @@ export const ENDPOINTS = {
     update: (id: string) => `/cases/${id}`,
     remove: (id: string) => `/cases/${id}`,
   },
+  intake: {
+    start: '/intake/start',
+    detail: (id: string) => `/intake/${id}`,
+    message: (id: string) => `/intake/${id}/message`,
+    confirm: (id: string) => `/intake/${id}/confirm`,
+    abort: (id: string) => `/intake/${id}/abort`,
+  },
   health: '/health',
 } as const;
 

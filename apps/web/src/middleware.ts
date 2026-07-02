@@ -10,7 +10,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PROTECTED_PREFIXES = ['/dashboard', '/cases'];
+const PROTECTED_PREFIXES = ['/dashboard', '/cases', '/intake'];
 const AUTH_PAGES = ['/login', '/register'];
 const REFRESH_COOKIE = 'cs_refresh';
 
@@ -38,5 +38,5 @@ export function middleware(req: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/cases/:path*', '/login', '/register'],
+  matcher: ['/dashboard/:path*', '/cases/:path*', '/intake/:path*', '/login', '/register'],
 };
